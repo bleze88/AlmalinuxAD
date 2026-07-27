@@ -15,7 +15,7 @@ avec :
   un **assistant graphique proposé au premier login** pour rejoindre un
   domaine Windows **Active Directory** (optionnel, "skip" possible)
 
-Projet frère de [Compass Arch](../Linux) (même intégration AD sur base Arch
+Projet frère de [Compass Arch](https://github.com/bleze88/compassarch) (même intégration AD sur base Arch
 Linux) - l'essentiel de la logique métier realm/sssd/krb5/sudoers a été
 porté depuis ce projet ; voir
 [docs/AD-JOIN-WIZARD.md](docs/AD-JOIN-WIZARD.md) pour le détail de ce qui
