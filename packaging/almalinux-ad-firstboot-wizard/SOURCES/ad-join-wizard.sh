@@ -9,7 +9,7 @@
 #
 # kdialog est utilisé plutôt qu'une page Calamares/Qt dédiée : déjà fourni
 # par KDE (aucune dépendance Python/Qt supplémentaire à faire vérifier sur
-# les dépôts EL9), et suffisant pour un formulaire séquentiel simple. Toute
+# les dépôts EL10), et suffisant pour un formulaire séquentiel simple. Toute
 # la logique privilégiée (realm/sssd/krb5/sudoers/SELinux) vit dans
 # ad-join-backend.py, invoqué ici via `pkexec` - ce script-ci ne fait que
 # collecter les réponses et afficher le résultat.

@@ -158,7 +158,7 @@ def fix_sssd_conf(domain):
     section [domain/<REALM>]. Comportement de systemd/pam_systemd (donc
     indépendant de la distribution - confirmé en conditions réelles sur le
     projet Arch de référence, très probablement identique sur la version de
-    systemd livrée par AlmaLinux 9) : userdbctl/pam_systemd comparent, casse
+    systemd livrée par AlmaLinux 10) : userdbctl/pam_systemd comparent, casse
     comprise, le nom saisi au login au nom canonique NSS/sssd, et
     refusent l'enregistrement au moindre écart
     (io.systemd.UserDatabase.ConflictingRecordFound) - pam_systemd traite

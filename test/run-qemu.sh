@@ -1,10 +1,12 @@
 #!/bin/bash
 # Boot rapide de l'ISO produite dans QEMU (UEFI, OVMF) - juste pour vérifier
-# que le menu de boot patché (inst.ks=cdrom:/ks.cfg) apparaît et
-# qu'Anaconda démarre. Ne remplace PAS un test d'installation complet sur
-# VMware réel (voir docs/BUILD.md et l'expérience du projet frère
-# Compass Arch : la plupart des pièges AD ne se sont révélés qu'en
-# conditions réelles sur VMware, pas sous QEMU).
+# que la session live KDE démarre correctement (squashfs personnalisé
+# valide). Ne remplace PAS un test d'installation complet sur VMware réel
+# (icône "Install to Hard Drive" -> Anaconda -> premier login -> assistant
+# AD) - voir docs/BUILD.md et l'expérience du projet frère Compass Arch :
+# la plupart des pièges liés à l'intégration AD (horloge, DNS, SDDM,
+# SELinux...) ne s'est révélée qu'en conditions réelles sur VMware, jamais
+# sous QEMU seul.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -1,6 +1,6 @@
 build/iso-cache/
 build/local-repo/
-build/.respin-work/
+build/.customize-work/
 build/out/
 packaging/*/BUILD/
 packaging/*/BUILDROOT/
@@ -8,3 +8,4 @@ packaging/*/RPMS/
 packaging/*/SRPMS/
 *.iso
 .DS_Store
+.claude/

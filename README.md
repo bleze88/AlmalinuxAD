@@ -1,15 +1,16 @@
 # AlmaLinux AD
 
-Distribution Linux basée sur **AlmaLinux** (dernière version majeure
+Distribution Linux basée sur **AlmaLinux 10** (dernière version majeure
 stable, compatible RHEL), pour un environnement professionnel/entreprise,
 avec :
 
-- **KDE Plasma** comme environnement de bureau (valeurs par défaut de la
-  distribution - Plymouth, GRUB2, SDDM, branding KDE non personnalisés)
+- **KDE Plasma** comme environnement de bureau, live-boot inclus ("essayer
+  avant d'installer" - valeurs par défaut de la distribution : Plymouth,
+  GRUB2, SDDM, branding KDE non personnalisés)
 - **Anaconda**, l'installeur graphique natif AlmaLinux/RHEL, pas-à-pas
-  (respin du DVD officiel avec une sélection de logiciels pré-remplie -
-  voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) pour pourquoi ce choix
-  plutôt qu'un live-ISO + Calamares)
+  (lancé depuis la session live via "Install to Hard Drive" - voir
+  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) pour pourquoi Anaconda
+  plutôt que Calamares)
 - **sssd + adcli + samba + realmd + krb5-workstation** préinstallés, avec
   un **assistant graphique proposé au premier login** pour rejoindre un
   domaine Windows **Active Directory** (optionnel, "skip" possible)
@@ -22,21 +23,24 @@ change (et ce qui ne change pas) sur AlmaLinux.
 
 ## Décision d'architecture
 
-**Pas de live-ISO Calamares** : contrairement à Arch (archiso) ou
-Ubuntu/Debian (casper), il n'existe aucun précédent connu combinant
-live-ISO + Calamares côté RHEL/AlmaLinux. Ce projet utilise **Kickstart +
-Anaconda natif** (100% outillage RHEL balisé), avec l'étape de jonction AD
-déplacée du temps d'installation vers un **assistant graphique de premier
-login** plutôt qu'un `%post` kickstart aveugle et non-interactif. Détail
-complet et alternatives évaluées : [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+**Pas de Calamares** : contrairement à Arch (archiso) ou Ubuntu/Debian
+(casper), personne - pas même AlmaLinux en amont - n'a marié le pipeline
+live RHEL (`lorax`/`livemedia-creator`) à Calamares ; l'installeur reste
+partout Anaconda. Ce projet part donc de la **Live ISO KDE officielle et
+maintenue par AlmaLinux**, la personnalise par manipulation directe du
+squashfs (paquets AD + assistant ajoutés dans le rootfs live, pas de
+kickstart au moment de l'installation), et déplace la jonction AD vers un
+**assistant graphique de premier login**. Détail complet, alternatives
+évaluées, et une correction de trajectoire en cours de route (le tout
+premier scaffold avait écarté à tort tout live-boot) :
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Structure du dépôt
 
 ```
 distro.conf                              Identité de la distro (nom, version AlmaLinux ciblée)
-kickstart/ks.cfg                         Kickstart partiel (logiciels + %post uniquement, reste interactif)
 packaging/almalinux-ad-firstboot-wizard/ RPM "files-only" : wizard kdialog + backend Python + autostart/menu
-build/                                   Scripts de build (fetch ISO -> RPM -> respin xorriso)
+build/                                   Scripts de build (fetch Live ISO -> RPM -> personnalisation squashfs)
 test/run-qemu.sh                         Boot rapide de l'ISO produite (test complet : VMware réel)
 docs/                                    Documentation détaillée
 ```
@@ -53,17 +57,17 @@ docs/                                    Documentation détaillée
 
 L'ISO finale se trouve dans `build/out/`. Voir
 [docs/BUILD.md](docs/BUILD.md) pour les prérequis et surtout la liste des
-points à **vérifier empiriquement lors du tout premier build réel** (id du
-groupe KDE, chemin de montage du dépôt local pendant l'install, noms exacts
-des paquets sssd...) - ce dépôt a été scaffoldé sans accès à un DVD
-AlmaLinux réel, ces détails sont documentés plutôt que supposés corrects
-à l'aveugle.
+points à **vérifier empiriquement lors du tout premier build réel** (layout
+interne du squashfs live, noms exacts des paquets sssd, nettoyage des
+artefacts live par Anaconda...) - ce dépôt a été en grande partie scaffoldé
+avant d'avoir inspecté la Live ISO réelle, ces détails sont documentés
+plutôt que supposés corrects à l'aveugle.
 
 ## Secure Boot
 
 Désactivez Secure Boot dans le firmware avant de démarrer sur l'ISO -
 GRUB (généré nativement par Anaconda) n'est pas signé Secure Boot par
-défaut sur un DVD AlmaLinux standard.
+défaut sur une Live ISO AlmaLinux standard.
 
 ## Intégration Active Directory
 

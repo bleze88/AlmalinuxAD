@@ -136,7 +136,7 @@ casse vient de `systemd`, pas de `sssd`) ; le vrai fix est
 `use_fully_qualified_names=False`, qui élimine l'ambiguïté source du
 conflit en ne laissant qu'une seule forme de nom possible. Ce comportement
 appartient à `systemd`/`pam_systemd`, indépendant de la distribution - **à
-reconfirmer avec la version de `systemd` livrée par AlmaLinux 9** au premier
+reconfirmer avec la version de `systemd` livrée par AlmaLinux 10** au premier
 test réel, mais très probablement identique.
 
 **Piège d'application, reproduit dans `fix_sssd_conf()`** : `realm join`
@@ -159,7 +159,7 @@ défaut (`chrony` est l'unique client NTP dès l'installation) - la classe de
 bug "deux services de synchro d'horloge se marchent dessus, `sssd_be`
 plante en boucle tué par son propre watchdog" perd donc une de ses deux
 causes connues. La seconde (**VMware Tools**, `open-vm-tools`) reste
-d'actualité si le test se fait sur VMware : `kickstart/ks.cfg` écrit
+d'actualité si le test se fait sur VMware : `build/02-customize-squashfs.sh` écrit
 préventivement `/etc/vmware-tools/tools.conf` (`[timesync] disable =
 TRUE`), sans effet tant que le paquet n'est pas installé. Si ce symptôme
 réapparaît (`chronyc tracking` ou les logs de `chronyd` signalant *"System
@@ -175,7 +175,7 @@ RFC 6762. Le piège Arch venait spécifiquement de `systemd-resolved`
 (`MulticastDNS=yes` par défaut du profil live), absent d'AlmaLinux par
 défaut - mais **`avahi-daemon`** (souvent présent pour la découverte
 réseau/imprimantes) fait aussi du mDNS et peut causer le même
-ralentissement. `kickstart/ks.cfg` le masque par défaut en contexte
+ralentissement. `build/02-customize-squashfs.sh` le masque par défaut en contexte
 professionnel (`systemctl mask avahi-daemon.service avahi-daemon.socket`,
 best-effort, sans erreur si le paquet est absent). Si un domaine cible en
 `.local` semble anormalement lent à joindre malgré ça, vérifier
@@ -212,7 +212,7 @@ routait que la pile "password" vers `system-auth`, pas
 `auth`/`account`/`session` - `su` échouait silencieusement vers un compte
 AD, sans aucune trace dans les logs `sssd`, alors que `sudo` fonctionnait.
 
-`authselect select sssd with-mkhomedir --force` (dans `kickstart/ks.cfg`,
+`authselect select sssd with-mkhomedir --force` (dans `build/02-customize-squashfs.sh`,
 `%post`, appliqué une fois pour toutes à l'installation - indépendant de
 la jonction AD elle-même, qui peut être refaite/reconfigurée sans jamais
 retoucher ce câblage) reconfigure d'un coup NSS et **tous** les fichiers
@@ -228,7 +228,7 @@ par le paquet `pam` de base) plutôt que de compiler un paquet AUR de plus
 pour un gain nul. Sur AlmaLinux, `oddjob-mkhomedir` est **officiel**
 (BaseOS/AppStream) et c'est justement le mécanisme que documente
 `authselect --with-mkhomedir` (il insère `pam_oddjob_mkhomedir.so`, qui
-nécessite le démon `oddjobd` actif - `kickstart/ks.cfg` l'active via
+nécessite le démon `oddjobd` actif - `build/02-customize-squashfs.sh` l'active via
 `systemctl enable oddjobd.service`). Suivre le mécanisme officiel plutôt
 que de reproduire le contournement Arch, qui n'a plus lieu d'être ici.
 
@@ -239,7 +239,7 @@ capturée par `pkexec` puis affichée par le wizard en cas d'échec, et dans
 `journalctl` si invoqué comme partie d'un service systemd). Contrairement
 au module Calamares de référence (dont le log vivait sur le live, en RAM,
 perdu au redémarrage), ici le journal systemd est **persistant** par
-défaut (voir `kickstart/ks.cfg`) : après un échec, `journalctl` reste
+défaut (voir `build/02-customize-squashfs.sh`) : après un échec, `journalctl` reste
 consultable après un redémarrage. Une fois la jonction faite, l'état réel
 se vérifie directement : `realm list` (domaines rejoints), `journalctl -u
 sssd`, et `/var/log/sssd/*.log` (le plus détaillé pour les problèmes
