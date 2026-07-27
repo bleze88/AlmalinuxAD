@@ -81,6 +81,35 @@ def sync_clock():
         log("synchro horloge best-effort échouée ({}) - on continue quand même.".format(exc))
 
 
+def set_hostname(computer_name):
+    """Renomme réellement la machine (pas seulement l'objet AD créé par realm join).
+
+    `realm join --computer-name` ne fait que déclarer un nom à l'annuaire -
+    ça n'a aucun effet sur le hostname Linux réel. Confirmé en conditions
+    réelles : une installation dont le hostname n'a pas été changé
+    explicitement à l'étape réseau d'Anaconda hérite du hostname du média
+    live ("localhost-live", nom par défaut de dracut-live) - la machine se
+    retrouvait donc joignable dans l'AD sous un nom ("ALMA") complètement
+    différent de son hostname système réel, source de confusion (et
+    potentiellement de SPN Kerberos incohérents avec le hostname réel).
+    `hostnamectl set-hostname` fonctionne normalement ici (contrairement au
+    piège équivalent du projet Arch : ce script tourne sur un système
+    réellement démarré, D-Bus/systemd-hostnamed sont disponibles - pas le
+    `chroot()` d'installeur qui avait forcé l'usage de
+    `socket.sethostname()` là-bas). Fait AVANT la jonction elle-même,
+    inconditionnellement : même si `realm join` échoue ensuite, un hostname
+    cohérent reste un gain en soi. Persisté (/etc/hostname), un
+    redémarrage ou une nouvelle session reste nécessaire pour que
+    l'affichage KDE (invite de terminal déjà ouverte, etc.) se mette à jour
+    partout.
+    """
+    try:
+        run(["hostnamectl", "set-hostname", computer_name])
+        log("hostname système renommé en '{}'.".format(computer_name))
+    except subprocess.CalledProcessError as exc:
+        log("échec du renommage du hostname système ({}) - on continue quand même.".format(exc.stderr))
+
+
 def join_domain(domain, admin_user, computer_name, ou, password):
     cmd = ["realm", "join", "--user", admin_user, "--computer-name", computer_name, "--verbose"]
     if ou:
@@ -152,7 +181,7 @@ def pin_kdc_in_krb5_conf(domain):
 
 
 def fix_sssd_conf(domain):
-    """Force use_fully_qualified_names=False et case_sensitive=False.
+    """Force use_fully_qualified_names=False, case_sensitive=False, ldap_user_gecos=displayName.
 
     `realm join` génère par défaut use_fully_qualified_names=True dans la
     section [domain/<REALM>]. Comportement de systemd/pam_systemd (donc
@@ -168,11 +197,22 @@ def fix_sssd_conf(domain):
     seul ne suffit pas, la vérification de casse vient de systemd, pas de
     sssd. Voir docs/AD-JOIN-WIZARD.md pour la reconstitution complète.
 
-    Toute occurrence existante des deux clés dans la section du domaine est
-    retirée avant réinjection unique juste après l'en-tête de section : un
-    fichier ini avec une clé dupliquée garde sa DERNIÈRE occurrence, donc un
-    simple ajout en tête serait écrasé par le "True" généré par realm join
-    plus bas dans le fichier.
+    Troisième réglage dans le même lot, sans rapport avec le piège
+    ci-dessus mais touchant la même section : `realm join` ne mappe PAR
+    DÉFAUT PAS l'attribut AD `displayName` ("Christophe Montferrini") vers
+    le GECOS Unix - confirmé en conditions réelles, `getent passwd
+    <compte>` renvoyait le CN brut de l'objet AD (souvent identique au
+    sAMAccountName, ex: "MTF0001") au lieu du nom complet, y compris avec
+    le Display Name correctement renseigné côté AD. `ldap_user_gecos =
+    displayName` force explicitement ce mapping - sans lui, le menu
+    applications KDE (et tout autre endroit lisant le GECOS) affiche
+    l'identifiant du compte plutôt que "Prénom Nom".
+
+    Toute occurrence existante des trois clés dans la section du domaine
+    est retirée avant réinjection unique juste après l'en-tête de section :
+    un fichier ini avec une clé dupliquée garde sa DERNIÈRE occurrence,
+    donc un simple ajout en tête serait écrasé par une valeur générée par
+    realm join plus bas dans le fichier.
     """
     try:
         with open("/etc/sssd/sssd.conf") as f:
@@ -193,6 +233,7 @@ def fix_sssd_conf(domain):
         if in_domain_section and stripped.split("=", 1)[0].strip() in (
             "use_fully_qualified_names",
             "case_sensitive",
+            "ldap_user_gecos",
         ):
             continue
         filtered_lines.append(line)
@@ -203,6 +244,7 @@ def fix_sssd_conf(domain):
         if line.strip() == domain_header:
             final_lines.append("use_fully_qualified_names = False")
             final_lines.append("case_sensitive = False")
+            final_lines.append("ldap_user_gecos = displayName")
     new_conf = "\n".join(final_lines) + "\n"
 
     with open("/etc/sssd/sssd.conf", "w") as f:
@@ -212,7 +254,7 @@ def fix_sssd_conf(domain):
     os.chmod("/etc/sssd/sssd.conf", 0o600)
     restorecon("/etc/sssd/sssd.conf")
     run(["systemctl", "restart", "sssd.service"], check=False)
-    log("use_fully_qualified_names=False / case_sensitive=False appliqués à sssd.conf.")
+    log("use_fully_qualified_names=False / case_sensitive=False / ldap_user_gecos=displayName appliqués à sssd.conf.")
 
 
 def restrict_login(allowed_group):
@@ -307,6 +349,7 @@ def main():
         log("mot de passe vide lu sur stdin, abandon.")
         return 1
 
+    set_hostname(args.computer_name)
     sync_clock()
 
     try:

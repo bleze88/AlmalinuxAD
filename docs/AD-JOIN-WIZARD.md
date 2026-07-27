@@ -32,23 +32,43 @@ pièges déjà rencontrés (et corrigés) sur le projet Arch.
 ## Déclenchement au premier login (pas au premier boot)
 
 - `etc/xdg/autostart/almalinux-ad-join-wizard-autostart.desktop` : lancé
-  par KDE Plasma au premier login **de chaque compte utilisateur local**,
-  appelle `ad-join-wizard-autostart.sh`.
-- Ce script vérifie un marqueur **par utilisateur**
-  (`~/.config/almalinux-ad/wizard-done`), pas machine-wide : écrire un
-  marqueur global depuis un script non privilégié demanderait un `pkexec`
-  (donc un mot de passe) même quand l'utilisateur clique juste « Non » -
-  gêne inutile pour ce cas très fréquent. En pratique, l'installation
-  interactive Anaconda ne crée qu'un seul compte local (l'admin) ; si
-  d'autres comptes locaux sont créés plus tard, chacun verra l'invite une
-  seule fois à son propre premier login - limitation assumée plutôt qu'un
-  mécanisme de marqueur privilégié pour un cas marginal.
+  par KDE Plasma au premier login, appelle `ad-join-wizard-autostart.sh`.
+- **Jamais pendant une session live** : ce lanceur vit dans le rootfs live
+  lui-même (il doit y être pour arriver sur le système installé, copié tel
+  quel par le paiement live d'Anaconda), donc KDE le déclenche aussi pour
+  le compte utilisateur de la session live à son propre "premier login" -
+  confirmé en conditions réelles (popup affiché par-dessus le "Welcome
+  Center" du live, avant même toute installation). Corrigé en détectant
+  `rd.live.image` dans `/proc/cmdline` (paramètre noyau standard posé par
+  dracut-live sur tout boot live, absent une fois installé) : le script
+  sort immédiatement si présent.
+- **Ne se propose plus si la machine est déjà jointe à un domaine**
+  (`realm list` non vide) - le signal qui compte vraiment, indépendamment
+  du compte qui se connecte. Corrigé après un bug confirmé en conditions
+  réelles : avec un marqueur par utilisateur (première version), chaque
+  nouveau compte **AD** se connectant pour la première fois obtenait un
+  `$HOME` flambant neuf (créé par `pam_oddjob_mkhomedir`) qui n'avait
+  jamais vu le marqueur - l'invite "voulez-vous rejoindre un domaine ?"
+  réapparaissait donc à chaque nouveau compte du domaine, ce qui n'a aucun
+  sens une fois la machine déjà jointe.
+- Marqueur **machine-wide** (`/var/lib/almalinux-ad/wizard-done`), pas par
+  utilisateur : ce répertoire est créé au build avec le groupe `wheel` et
+  le bit setgid (`install -d -m 2775 -o root -g wheel`, voir
+  `build/02-customize-squashfs.sh`), pour que le compte admin local
+  (membre de `wheel`) puisse y écrire sans `pkexec` - la même contrainte
+  qui avait motivé un marqueur par utilisateur au départ (éviter un mot de
+  passe demandé juste pour cliquer « Non ») reste respectée, avec cette
+  fois une portée machine-wide correcte. Si le compte qui déclenche
+  l'autostart n'est pas membre de `wheel`, l'écriture du marqueur échoue
+  silencieusement (`|| true`) plutôt que de faire planter la session -
+  dégradation acceptable (l'invite réapparaîtrait au login suivant) plutôt
+  qu'un crash.
 - Quel que soit le résultat (jonction réussie, échouée, ou refusée), le
   marqueur est posé et l'invite automatique ne revient plus - la jonction
   reste possible manuellement ensuite via l'entrée de menu applications
   « Rejoindre un domaine Active Directory »
   (`usr/share/applications/almalinux-ad-join-wizard.desktop`), qui appelle
-  le même wizard sans condition de marqueur.
+  le même wizard sans condition de marqueur ni de vérification `realm list`.
 
 ## Ce qui disparaît par rapport au projet Arch (contexte chroot vs système réel)
 
@@ -95,6 +115,18 @@ Ces pièges viennent de `sssd`/`krb5`/`systemd`/`sudo`/`SDDM` eux-mêmes, pas
 de la façon dont l'installeur s'exécute - ils s'appliquent donc tels quels
 ici, implémentés dans `ad-join-backend.py` :
 
+- **Renommage réel de la machine avant jonction** (`set_hostname()`,
+  `hostnamectl set-hostname`) : `realm join --computer-name` ne fait que
+  déclarer un nom à l'annuaire AD, ça n'a **aucun effet** sur le hostname
+  Linux réel. Piège confirmé en conditions réelles : une installation dont
+  le hostname n'avait pas été changé explicitement à l'étape réseau
+  d'Anaconda héritait du hostname du média live (`localhost-live`, nom par
+  défaut de dracut-live) - la machine se retrouvait joignable dans l'AD
+  sous un nom ("ALMA") complètement différent de son hostname système réel
+  (visible dans toute invite de terminal), source de confusion. Contexte
+  d'exécution réel (D-Bus/`systemd-hostnamed` disponibles) : pas besoin du
+  contournement `socket.sethostname()` du projet Arch (voir plus haut) -
+  `hostnamectl` fonctionne ici normalement.
 - **Synchro horloge avant jonction** (`sync_clock()`) : Kerberos est
   sensible au décalage d'horloge. `chrony` est déjà l'unique client NTP
   actif par défaut sur AlmaLinux (voir "Horloge" ci-dessous pour le détail
@@ -109,6 +141,14 @@ ici, implémentés dans `ad-join-backend.py` :
   (`fix_sssd_conf()`) : **le piège le plus retors du projet Arch**, détaillé
   ci-dessous, reproduit intégralement ici car il vient de
   `systemd`/`pam_systemd`, pas de la distribution.
+- **`ldap_user_gecos = displayName`** (`fix_sssd_conf()`, nouveau par
+  rapport au projet Arch) : `realm join` ne mappe **pas par défaut**
+  l'attribut AD `displayName` ("Prénom Nom") vers le GECOS Unix - confirmé
+  en conditions réelles, `getent passwd <compte>` renvoyait le CN brut de
+  l'objet AD (souvent identique au `sAMAccountName`, ex: "MTF0001") au menu
+  applications KDE au lieu du nom complet, y compris avec le Display Name
+  correctement renseigné côté AD. Sans ce réglage explicite, sssd retombe
+  sur le CN de l'objet plutôt que sur `displayName`.
 - **Restriction de connexion** (`restrict_login()`) : `realm deny --all` +
   `realm permit --groups <court>` - sans ça, tout compte du domaine peut se
   connecter une fois la jonction faite.
@@ -231,6 +271,23 @@ pour un gain nul. Sur AlmaLinux, `oddjob-mkhomedir` est **officiel**
 nécessite le démon `oddjobd` actif - `build/02-customize-squashfs.sh` l'active via
 `systemctl enable oddjobd.service`). Suivre le mécanisme officiel plutôt
 que de reproduire le contournement Arch, qui n'a plus lieu d'être ici.
+
+**Chemin du home directory : `/home/%D/%U`, comme sur Arch.** Sans
+configuration explicite, `realmd` utilise son propre défaut
+(`/home/%u@%d`, ex: `/home/mtf0001@MONTFERRINI.LOCAL`) - moins lisible que
+la convention du projet Arch (`/home/%D/%U`, ex:
+`/home/MONTFERRINI.LOCAL/mtf0001`, `%D` = domaine complet). Différence
+constatée en conditions réelles entre les deux projets, pas une
+particularité d'AlmaLinux : le projet Arch avait ce réglage dans un
+`/etc/realmd.conf` statique fourni dès le live (overlay `airootfs/`, avant
+`pacstrap`) ; ici, `realmd` n'étant installé qu'au moment du build du
+squashfs (pas un paquet de base du live officiel AlmaLinux), le fichier
+`/etc/realmd.conf` (`[users]` `default-home = /home/%D/%U` /
+`default-shell = /bin/bash`) est écrit par `build/02-customize-squashfs.sh`
+juste après l'installation de `realmd` - `realmd` lit ce fichier au moment
+de `realm join` (donc au premier login, via l'assistant) pour décider du
+`fallback_homedir` qu'il écrit dans `sssd.conf` ; le réglage doit donc être
+en place dès le build, pas seulement documenté ou appliqué après coup.
 
 ## Diagnostiquer un échec
 

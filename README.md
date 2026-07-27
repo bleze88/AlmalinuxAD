@@ -14,6 +14,8 @@ avec :
 - **sssd + adcli + samba + realmd + krb5-workstation** préinstallés, avec
   un **assistant graphique proposé au premier login** pour rejoindre un
   domaine Windows **Active Directory** (optionnel, "skip" possible)
+- **Google Chrome + Microsoft Edge** préinstallés (dépôts officiels
+  ajoutés au build, laissés activés pour les mises à jour de sécurité)
 
 Projet frère de [Compass Arch](https://github.com/bleze88/compassarch) (même intégration AD sur base Arch
 Linux) - l'essentiel de la logique métier realm/sssd/krb5/sudoers a été

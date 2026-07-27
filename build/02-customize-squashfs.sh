@@ -137,9 +137,53 @@ chroot "$ROOTFS_DIR" dnf install -y --setopt=install_weak_deps=False \
     policycoreutils \
     almalinux-ad-firstboot-wizard
 
+# Gabarit du dossier personnel des comptes AD : /home/%D/%U (domaine complet
+# / utilisateur), même convention que le projet frère Compass Arch - sans
+# ce fichier, realmd retombe sur son défaut /home/%u@%d (ex:
+# "mtf0001@MONTFERRINI.LOCAL"), moins lisible. Écrit APRÈS l'installation
+# de `realmd` mais AVANT toute jonction (qui n'a lieu qu'au premier login,
+# via l'assistant) : realmd lit ce fichier au moment de `realm join` pour
+# décider du `fallback_homedir` qu'il écrit dans sssd.conf, donc ce réglage
+# doit être en place dès le build, pas seulement documenté.
+cat > "$ROOTFS_DIR/etc/realmd.conf" <<'EOF'
+[users]
+default-home = /home/%D/%U
+default-shell = /bin/bash
+EOF
+
+echo "==> Ajout des dépôts Google Chrome et Microsoft Edge"
+rpm --root "$ROOTFS_DIR" --import https://dl.google.com/linux/linux_signing_key.pub
+cat > "$ROOTFS_DIR/etc/yum.repos.d/google-chrome.repo" <<'EOF'
+[google-chrome]
+name=google-chrome
+baseurl=https://dl.google.com/linux/chrome/rpm/stable/x86_64
+enabled=1
+gpgcheck=1
+gpgkey=https://dl.google.com/linux/linux_signing_key.pub
+EOF
+rpm --root "$ROOTFS_DIR" --import https://packages.microsoft.com/keys/microsoft.asc
+cat > "$ROOTFS_DIR/etc/yum.repos.d/microsoft-edge.repo" <<'EOF'
+[microsoft-edge]
+name=microsoft-edge
+baseurl=https://packages.microsoft.com/yumrepos/edge
+enabled=1
+gpgcheck=1
+gpgkey=https://packages.microsoft.com/keys/microsoft.asc
+EOF
+chroot "$ROOTFS_DIR" dnf install -y google-chrome-stable microsoft-edge-stable
+# Dépôts laissés activés (pas de dépôt temporaire comme AlmaLinuxAD-local) :
+# le système installé pourra recevoir les mises à jour de sécurité de ces
+# deux navigateurs via dnf, ce qui compte plus pour un navigateur que pour
+# la plupart des logiciels.
+
 echo "==> authselect / oddjobd / journald / avahi / horloge"
 chroot "$ROOTFS_DIR" authselect select sssd with-mkhomedir --force
 chroot "$ROOTFS_DIR" systemctl enable oddjobd.service
+
+# Marqueur machine-wide "assistant AD déjà proposé" (voir
+# ad-join-wizard-autostart.sh) : groupe wheel + setgid + 0775, pour que le
+# compte admin local (membre de wheel) puisse y écrire sans pkexec.
+chroot "$ROOTFS_DIR" install -d -m 2775 -o root -g wheel /var/lib/almalinux-ad
 
 mkdir -p "$ROOTFS_DIR/var/log/journal" "$ROOTFS_DIR/etc/systemd/journald.conf.d"
 cat > "$ROOTFS_DIR/etc/systemd/journald.conf.d/persistent-storage.conf" <<'EOF'

@@ -40,7 +40,7 @@ ou=$(ask_optional "Unité d'organisation (OU) - optionnel, laissez vide pour la 
 admin_user=$(ask_required "Compte administrateur du domaine (autorisé à joindre un poste) :") || exit 1
 [ -n "$admin_user" ] || exit 1
 
-computer_name=$(ask_required "Nom de cet ordinateur dans l'annuaire AD :" "$(hostname -s)") || exit 1
+computer_name=$(ask_required "Nom de cet ordinateur (utilisé à la fois pour l'annuaire AD et comme nom d'hôte système - un redémarrage sera nécessaire pour que le changement soit visible partout) :" "$(hostname -s)") || exit 1
 [ -n "$computer_name" ] || exit 1
 
 allowed_group=$(ask_optional "Groupe AD autorisé à se connecter sur ce poste - optionnel, nom court.\nLaissez vide pour autoriser tout le domaine :")
