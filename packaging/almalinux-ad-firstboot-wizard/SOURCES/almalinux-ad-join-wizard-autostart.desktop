@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=AlmaLinux AD - Assistant de jonction Active Directory (premier login)
+Comment=Propose une seule fois de rejoindre un domaine Active Directory au premier login
+Exec=/usr/libexec/almalinux-ad/ad-join-wizard-autostart.sh
+OnlyShowIn=KDE;
+X-KDE-autostart-phase=2
+NoDisplay=true

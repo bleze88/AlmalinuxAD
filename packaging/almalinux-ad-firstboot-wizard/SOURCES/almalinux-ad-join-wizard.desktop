@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Rejoindre un domaine Active Directory
+Comment=Rejoindre ou reconfigurer la jonction à un domaine Windows Active Directory
+Exec=/usr/bin/almalinux-ad-join-wizard
+Icon=preferences-system-network
+Categories=System;Settings;
+Terminal=false

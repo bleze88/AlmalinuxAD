@@ -1,0 +1,10 @@
+build/iso-cache/
+build/local-repo/
+build/.respin-work/
+build/out/
+packaging/*/BUILD/
+packaging/*/BUILDROOT/
+packaging/*/RPMS/
+packaging/*/SRPMS/
+*.iso
+.DS_Store
