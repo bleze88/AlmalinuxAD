@@ -161,6 +161,44 @@ rm -f "$ROOTFS_DIR/etc/yum.repos.d/almalinuxad-local.repo"
 umount "$ROOTFS_DIR/mnt/local-repo"
 rmdir "$ROOTFS_DIR/mnt/local-repo" 2>/dev/null || true
 
+# Relabel SELinux complet - CRITIQUE, pas optionnel. La machine de build
+# (conteneur colima) n'a pas SELinux actif au niveau noyau : le plugin
+# SELinux de RPM se désactive silencieusement pendant `dnf install`
+# ci-dessus (`is_selinux_enabled()` regarde le noyau EN COURS
+# D'EXÉCUTION, pas la politique de la cible), et nos propres écritures
+# directes (journald, vmware-tools...) n'ont jamais été labellisées non
+# plus. Confirmé en conditions réelles sur VMware sans ce fix : au tout
+# premier boot, `dbus-broker.service` échoue à "Listen on dbus.socket",
+# ce qui fait cascader `polkit`/`systemd-logind`/`upower`/`ModemManager`
+# en FAILED et empêche toute session graphique (écran noir après le
+# journal de boot) - signature classique d'un déni SELinux sur un fichier
+# resté `unlabeled_t`/mal contextualisé plutôt qu'un vrai problème matériel
+# ou de configuration système.
+#
+# `restorecon` NE SUFFIT PAS ICI - vérifié empiriquement (une première
+# tentative avec `restorecon -Rv /` a rapporté "0 entrées relabellisées",
+# silencieusement, exit 0) : `restorecon` est pensé pour un système DÉJÀ
+# actif et vérifie `is_selinux_enabled()` (présence de `/sys/fs/selinux`,
+# donc un noyau AVEC SELinux compilé) avant de faire quoi que ce soit - sur
+# notre noyau de build (colima, sans SELinux), il se désactive
+# silencieusement, y compris exécuté via `chroot` sur un rootfs cible qui a
+# pourtant sa propre policy. `setfiles` (l'outil bas niveau, celui
+# qu'Anaconda utilise lui-même pour labelliser un système FRAÎCHEMENT
+# INSTALLÉ avant son tout premier démarrage - exactement notre cas de
+# figure) n'a pas cette dépendance au noyau courant - confirmé
+# empiriquement (`setfiles -F <file_contexts> /etc/passwd` relabellise
+# correctement même avec `getenforce` à `Disabled` sur l'hôte de build).
+# `-e proc/sys/dev` exclut les trois points de montage bind (virtuels,
+# rien à labelliser dedans - les inclure ferait aussi planter setfiles sur
+# des fichiers spéciaux qu'il ne sait pas gérer).
+SELINUX_TYPE=$(chroot "$ROOTFS_DIR" sh -c '. /etc/selinux/config 2>/dev/null; echo "$SELINUXTYPE"')
+SELINUX_TYPE="${SELINUX_TYPE:-targeted}"
+echo "==> Relabel SELinux complet du rootfs live (policy '$SELINUX_TYPE', peut prendre 1-2 min)"
+chroot "$ROOTFS_DIR" setfiles -v -F -e /proc -e /sys -e /dev \
+    "/etc/selinux/$SELINUX_TYPE/contexts/files/file_contexts" / \
+    > "$WORK_DIR/relabel.log" 2>&1 || true
+echo "    $(wc -l < "$WORK_DIR/relabel.log") entrées relabellisées"
+
 for m in dev/pts dev proc sys; do
     umount -R "$ROOTFS_DIR/$m" 2>/dev/null || true
 done

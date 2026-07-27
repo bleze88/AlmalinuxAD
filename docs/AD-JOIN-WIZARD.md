@@ -1,7 +1,7 @@
 # Assistant de jonction Active Directory (premier login)
 
 Contrepartie fonctionnelle du module Calamares `adjoinview`/`adjoinjob` du
-projet frère [Compass Arch](../../Linux/docs/AD-JOIN-MODULE.md), mais
+projet frère [Compass Arch](https://github.com/bleze88/compassarch/blob/main/docs/AD-JOIN-MODULE.md), mais
 repensée autour d'une différence structurelle : ici, tout tourne **sur le
 système réellement installé et démarré** (vrai `systemd` PID 1, vrai bus
 D-Bus système, NetworkManager actif), jamais dans un `chroot()`

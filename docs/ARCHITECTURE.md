@@ -8,7 +8,7 @@ de route**, voir "Correction de trajectoire" ci-dessous, qui explique
 pourquoi la version ci-dessous diffère du tout premier scaffold).
 
 **Constat de départ.** Contrairement à Arch (archiso+Calamares, très mature -
-voir le projet frère [Compass Arch](../../Linux)) et à Ubuntu/Debian
+voir le projet frère [Compass Arch](https://github.com/bleze88/compassarch)) et à Ubuntu/Debian
 (casper+Calamares, KDE Neon...), il n'existe **aucun précédent connu**
 combinant live-ISO RHEL/AlmaLinux + **Calamares** : Fedora (qui maintient
 `lorax`/`livemedia-creator`, le pipeline live officiel de la famille RHEL)
