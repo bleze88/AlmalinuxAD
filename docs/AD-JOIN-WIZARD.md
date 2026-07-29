@@ -174,6 +174,20 @@ ici, implémentés dans `ad-join-backend.py` :
      transparente à ce niveau. `dns_lookup_realm`/`dns_lookup_kdc=true`
      restent en place dans `[libdefaults]` en filet de sécurité
      complémentaire.
+
+  **Piège annexe corrigé dans la foulée - le royaume Kerberos n'est pas
+  toujours `domaine.upper()`** : la valeur utilisée comme clé dans
+  `[realms]`/valeur dans `[domain_realm]` supposait au départ que le
+  royaume Kerberos s'obtient en majusculant simplement le domaine saisi
+  (points conservés, ex: "montferrini.local" -> "MONTFERRINI.LOCAL") -
+  faux dans certaines entreprises, où le royaume réel ne suit pas le nom
+  DNS à l'identique (ex: underscore plutôt que point,
+  "DOMAINE_EXTENSION" au lieu de "DOMAINE.EXTENSION"). `realm join` a
+  déjà écrit le vrai royaume dans l'en-tête `[domain/<royaume>]` de
+  `sssd.conf` au moment où `populate_krb5_realms()` s'exécute - extrait
+  via `find_actual_realm()` (fonction partagée, aussi utilisée par
+  `fix_sssd_conf()` ci-dessous pour le même genre de piège) plutôt que
+  recalculé en devinant.
 - **`use_fully_qualified_names=False` / `case_sensitive=False`**
   (`fix_sssd_conf()`) : **le piège le plus retors du projet Arch**, détaillé
   ci-dessous, reproduit intégralement ici car il vient de

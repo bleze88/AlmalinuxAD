@@ -211,7 +211,20 @@ def populate_krb5_realms(domain):
        redondance entre les 8 DC est déjà transparente à ce niveau - et
        cette version reste donc valide même sans le moindre enregistrement
        SRV Kerberos configuré côté AD.
+
+    Piège corrigé dans la même veine que `fix_sssd_conf()` : le royaume
+    Kerberos utilisé comme clé dans `[realms]`/valeur dans `[domain_realm]`
+    n'est PAS toujours `domain.upper()` - certaines entreprises ont un
+    royaume qui ne suit pas le nom DNS à l'identique (ex: underscore plutôt
+    que point, "DOMAINE_EXTENSION" au lieu de "DOMAINE.EXTENSION"). Lu via
+    `find_actual_realm()` (le vrai nom déjà écrit par `realm join` dans
+    sssd.conf) plutôt que recalculé en devinant.
     """
+    realm = find_actual_realm(domain)
+    if realm is None:
+        log("aucune section [domain/...] trouvée dans sssd.conf, [realms]/[domain_realm] non peuplés.")
+        return
+
     try:
         with open("/etc/krb5.conf") as f:
             krb5_conf = f.read()
@@ -219,11 +232,10 @@ def populate_krb5_realms(domain):
         log("impossible de lire /etc/krb5.conf ({}), [realms]/[domain_realm] non peuplés.".format(exc))
         return
 
-    realm_upper = domain.upper()
     realm_block = "    {0} = {{\n        kdc = {1}\n        admin_server = {1}\n    }}\n".format(
-        realm_upper, domain
+        realm, domain
     )
-    domain_realm_block = "    .{0} = {1}\n    {0} = {1}\n".format(domain, realm_upper)
+    domain_realm_block = "    .{0} = {1}\n    {0} = {1}\n".format(domain, realm)
 
     new_lines = []
     for line in krb5_conf.splitlines(keepends=True):
@@ -237,7 +249,46 @@ def populate_krb5_realms(domain):
     with open("/etc/krb5.conf", "w") as f:
         f.write("".join(new_lines))
     restorecon("/etc/krb5.conf")
-    log("[realms]/[domain_realm] peuplés pour {} (kdc = {}).".format(realm_upper, domain))
+    log("[realms]/[domain_realm] peuplés pour {} (kdc = {}).".format(realm, domain))
+
+
+def find_actual_realm(domain):
+    """Lit le royaume Kerberos RÉELLEMENT créé par `realm join` dans sssd.conf, sans le deviner.
+
+    Piège corrigé après un test en conditions réelles (domaine
+    "MonEntreprise.CH") : supposer que le royaume Kerberos est toujours
+    `domain.upper()` (majuscules, points conservés) est faux dans certains
+    environnements - certaines entreprises ont un royaume qui ne suit PAS
+    le nom DNS du domaine à l'identique (ex: underscore plutôt que point,
+    "DOMAINE_EXTENSION" au lieu de "DOMAINE.EXTENSION"). `realm join` a
+    déjà écrit le vrai nom dans l'en-tête de section `[domain/<royaume>]`
+    de sssd.conf au moment où cette fonction est appelée - on le lit là
+    plutôt que de le recalculer nous-mêmes. Recherche insensible à la
+    casse contre le domaine effectivement joint, avec repli sur la
+    première section `[domain/...]` rencontrée (une installation
+    fraîchement jointe n'en a normalement qu'une seule) si même ça ne
+    correspond pas. Retourne None si sssd.conf est illisible ou ne
+    contient aucune section [domain/...].
+    """
+    try:
+        with open("/etc/sssd/sssd.conf") as f:
+            conf = f.read()
+    except OSError as exc:
+        log("impossible de lire /etc/sssd/sssd.conf ({}).".format(exc))
+        return None
+
+    fallback = None
+    expected = "[domain/{}]".format(domain).lower()
+    for line in conf.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[domain/") and stripped.endswith("]"):
+            if fallback is None:
+                fallback = stripped
+            if stripped.lower() == expected:
+                return stripped[len("[domain/"):-1]
+    if fallback is not None:
+        return fallback[len("[domain/"):-1]
+    return None
 
 
 def fix_sssd_conf(domain):
@@ -288,26 +339,13 @@ def fix_sssd_conf(domain):
     # domaine tel que saisi. Avec l'ancienne comparaison stricte, la section
     # n'était JAMAIS reconnue, donc TOUTE la fonction ne faisait rien - ni le
     # fix use_fully_qualified_names/case_sensitive (bug écran noir), ni
-    # ldap_user_gecos (nom complet KDE). Recherche insensible à la casse
-    # contre le domaine effectivement joint, avec repli sur la première
-    # section [domain/...] rencontrée (une installation fraîchement jointe
-    # n'en a normalement qu'une seule) si même ça ne correspond pas.
-    domain_header = None
-    fallback_header = None
-    expected = "[domain/{}]".format(domain).lower()
-    for line in conf.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("[domain/") and stripped.endswith("]"):
-            if fallback_header is None:
-                fallback_header = stripped
-            if stripped.lower() == expected:
-                domain_header = stripped
-                break
-    if domain_header is None:
-        domain_header = fallback_header
-    if domain_header is None:
+    # ldap_user_gecos (nom complet KDE). find_actual_realm() lit le vrai nom
+    # plutôt que de le deviner.
+    realm = find_actual_realm(domain)
+    if realm is None:
         log("aucune section [domain/...] trouvée dans sssd.conf, réglages non appliqués.")
         return
+    domain_header = "[domain/{}]".format(realm)
 
     in_domain_section = False
     filtered_lines = []
