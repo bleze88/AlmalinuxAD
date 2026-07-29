@@ -176,9 +176,23 @@ chroot "$ROOTFS_DIR" dnf install -y google-chrome-stable microsoft-edge-stable
 # deux navigateurs via dnf, ce qui compte plus pour un navigateur que pour
 # la plupart des logiciels.
 
-echo "==> authselect / oddjobd / journald / avahi / horloge"
+echo "==> authselect / oddjobd / journald / avahi / horloge / sudo"
 chroot "$ROOTFS_DIR" authselect select sssd with-mkhomedir --force
 chroot "$ROOTFS_DIR" systemctl enable oddjobd.service
+
+# Durcissement demandé pour un environnement professionnel : sudo ne met
+# JAMAIS en cache une authentification réussie (par défaut, RHEL/AlmaLinux
+# redemande le mot de passe seulement toutes les timestamp_timeout=5
+# minutes) - chaque `sudo` redemande donc le mot de passe à chaque fois,
+# sans exception. Fragment séparé (00-) plutôt qu'ajouté au fragment AD
+# (90-ad-admins, écrit plus tard au premier login par ad-join-backend.py) :
+# les deux n'ont rien à voir et ne doivent pas dépendre l'un de l'autre.
+cat > "$ROOTFS_DIR/etc/sudoers.d/00-no-timestamp-cache.tmp" <<'EOF'
+Defaults timestamp_timeout=0
+EOF
+chroot "$ROOTFS_DIR" visudo -cf /etc/sudoers.d/00-no-timestamp-cache.tmp
+mv "$ROOTFS_DIR/etc/sudoers.d/00-no-timestamp-cache.tmp" "$ROOTFS_DIR/etc/sudoers.d/00-no-timestamp-cache"
+chmod 0440 "$ROOTFS_DIR/etc/sudoers.d/00-no-timestamp-cache"
 
 # Marqueur machine-wide "assistant AD déjà proposé" (voir
 # ad-join-wizard-autostart.sh) : groupe wheel + setgid + 0775, pour que le

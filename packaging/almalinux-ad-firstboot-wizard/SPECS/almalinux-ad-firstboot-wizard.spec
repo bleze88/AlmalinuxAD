@@ -32,6 +32,7 @@ Requires:       policycoreutils
 Requires:       polkit
 Requires:       python3
 Requires:       kdialog
+Requires:       zenity
 
 %description
 Installe un assistant graphique (kdialog) proposé une fois au premier

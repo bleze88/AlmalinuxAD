@@ -13,14 +13,29 @@ pièges déjà rencontrés (et corrigés) sur le projet Arch.
 
 - **`/usr/bin/almalinux-ad-join-wizard`**
   ([`packaging/.../SOURCES/ad-join-wizard.sh`](../packaging/almalinux-ad-firstboot-wizard/SOURCES/ad-join-wizard.sh)) :
-  non privilégié, **un seul écran** (`kdialog --forms` : domaine, nom de
+  non privilégié, **un seul écran** (`zenity --forms` : domaine, nom de
   machine, compte admin, mot de passe, OU, groupe autorisé, groupe sudo),
-  puis écran de confirmation récapitulatif. Remplace une première version à
-  boîtes de dialogue séquentielles (une par champ) - retour direct d'un
-  test en conditions réelles sur poste physique : avec une série de popups,
-  il est facile de répondre au mauvais champ ou de valider par erreur, le
-  formulaire groupé élimine ce risque. Le mot de passe ne vit que dans une
-  variable shell, jamais écrit sur disque ni passé en argument de commande
+  puis écran de confirmation récapitulatif (`kdialog --yesno`, qui
+  fonctionne normalement). Remplace une première version à boîtes de
+  dialogue séquentielles (une par champ) - retour direct d'un test en
+  conditions réelles sur poste physique : avec une série de popups, il est
+  facile de répondre au mauvais champ ou de valider par erreur, le
+  formulaire groupé élimine ce risque.
+
+  **`zenity`, pas `kdialog --forms`** : une toute première tentative de
+  formulaire groupé utilisait `kdialog --forms` - confirmé **inexistant**
+  sur cette version de kdialog (`kdialog-25.12.3`, ère KDE Frameworks 6) en
+  conditions réelles sur poste physique (*"kdialog: Option inconnue
+  'forms'."*), `--forms` étant un mode de l'ancien kdialog (KDE4/Plasma5)
+  visiblement jamais reporté sur le paquet EPEL pour AlmaLinux 10. `zenity`
+  (déjà présent dans l'image de façon transitive, `Requires: zenity` ajouté
+  explicitement par sécurité) a un mode `--forms` mature et stable, avec
+  champ mot de passe masqué natif (`--add-password`) - confirmé disponible
+  via `zenity --help-forms` avant de l'adopter. Léger écart visuel (boîte
+  GTK plutôt que native KDE) pour ce seul écran, acceptable vu la fiabilité
+  - le reste de l'assistant reste en `kdialog`. Le mot de passe ne vit que
+  dans une variable shell, jamais écrit sur disque ni passé en argument de
+  commande
   (visible dans `/proc/*/cmdline`) - transmis au backend par **stdin**, à
   travers `pkexec` (qui préserve l'entrée standard de l'appelant).
 - **`/usr/libexec/almalinux-ad/ad-join-backend.py`**

@@ -7,25 +7,26 @@
 # etc/xdg/autostart/almalinux-ad-join-wizard-autostart.desktop vs.
 # usr/share/applications/almalinux-ad-join-wizard.desktop).
 #
-# Un seul écran (`kdialog --forms`), pas une série de boîtes de dialogue
+# Un seul écran (`zenity --forms`), pas une série de boîtes de dialogue
 # séquentielles : retour direct d'un test en conditions réelles sur poste
 # physique - avec plusieurs popups à la suite, il est facile de se tromper
 # de champ (répondre à la mauvaise question, ou valider un champ vide en
-# pensant être ailleurs). `kdialog --forms` regroupe tous les champs dans
+# pensant être ailleurs). `zenity --forms` regroupe tous les champs dans
 # une seule fenêtre, review complète avant validation.
 #
-# !! Syntaxe `--forms` moins courante que les boîtes `--inputbox`/`--yesno`
-# habituelles de kdialog - comportement à reconfirmer au premier test réel
-# après ce changement (voir docs/AD-JOIN-WIZARD.md) : un label préfixé par
-# `*` doit produire un champ mot de passe masqué, et la sortie doit donner
-# une valeur par ligne dans l'ordre des champs déclarés.
-#
-# kdialog est utilisé plutôt qu'une page Calamares/Qt dédiée : déjà fourni
-# par KDE (aucune dépendance Python/Qt supplémentaire à faire vérifier sur
-# les dépôts EL10). Toute la logique privilégiée
-# (realm/sssd/krb5/sudoers/SELinux) vit dans ad-join-backend.py, invoqué
-# ici via `pkexec` - ce script-ci ne fait que collecter les réponses et
-# afficher le résultat.
+# `zenity`, pas `kdialog --forms` : la première version de ce script
+# utilisait `kdialog --forms`, qui s'est révélé **ne pas exister du tout**
+# sur cette version de kdialog (25.12.3, ère KDE Frameworks 6) - confirmé
+# en conditions réelles sur poste physique ("kdialog: Option inconnue
+# 'forms'.") et par `kdialog --help` (aucune trace de `--forms` dans la
+# sortie). `--forms` était un mode de l'ancien kdialog (KDE4/Plasma5), visiblement
+# jamais reporté sur le kdialog fourni par EPEL pour AlmaLinux 10. `zenity`
+# (déjà présent dans l'image, confirmé par `zenity --help-forms`) a un mode
+# forms mature et stable, avec champ mot de passe masqué natif
+# (`--add-password`) - léger écart visuel (boîte GTK plutôt que native KDE)
+# pour ce seul écran, acceptable vu la fiabilité. Le reste de l'assistant
+# (confirmation, succès, erreur) reste en `kdialog`, qui fonctionne
+# normalement pour ces modes plus simples.
 set -euo pipefail
 
 TITLE="AlmaLinux AD - Jonction Active Directory"
@@ -33,18 +34,19 @@ TITLE="AlmaLinux AD - Jonction Active Directory"
 # Annuler ce formulaire (bouton Annuler) = ne pas rejoindre maintenant,
 # exactement comme répondre "Non" dans l'ancienne version à plusieurs
 # écrans - toujours possible plus tard depuis le menu applications.
-form_output=$(kdialog --title "$TITLE" --forms \
-    "Rejoindre un domaine Windows Active Directory (Annuler = ne pas rejoindre maintenant - toujours possible plus tard depuis le menu applications « Rejoindre un domaine Active Directory ») :" \
-    "Domaine AD (ex: example.corp) :" "" \
-    "Nom de cet ordinateur (annuaire AD + hostname système) :" "$(hostname -s)" \
-    "Compte administrateur du domaine :" "" \
-    "*Mot de passe administrateur :" "" \
-    "Unité d'organisation - OU (optionnel) :" "" \
-    "Groupe(s) autorisé(s) à se connecter (optionnel, noms courts séparés par des virgules) :" "" \
-    "Groupe(s) avec sudo (optionnel, noms courts séparés par des virgules) :" "") || exit 1
+form_output=$(zenity --forms --title="$TITLE" --separator="|" \
+    --text="Rejoindre un domaine Windows Active Directory (Annuler = ne pas rejoindre maintenant - toujours possible plus tard depuis le menu applications « Rejoindre un domaine Active Directory »)" \
+    --add-entry="Domaine AD (ex: example.corp)" \
+    --add-entry="Nom de cet ordinateur (annuaire AD + hostname système - actuel: $(hostname -s))" \
+    --add-entry="Compte administrateur du domaine" \
+    --add-password="Mot de passe administrateur" \
+    --add-entry="Unité d'organisation - OU (optionnel)" \
+    --add-entry="Groupe(s) autorisé(s) à se connecter (optionnel, noms courts séparés par des virgules)" \
+    --add-entry="Groupe(s) avec sudo (optionnel, noms courts séparés par des virgules)") || exit 1
 
-# Une valeur par ligne, dans l'ordre des champs déclarés ci-dessus.
-mapfile -t fields <<< "$form_output"
+# Une seule ligne, valeurs séparées par "|" dans l'ordre des champs déclarés
+# ci-dessus (voir --separator ci-dessus).
+IFS='|' read -r -a fields <<< "$form_output"
 domain="${fields[0]:-}"
 computer_name="${fields[1]:-}"
 admin_user="${fields[2]:-}"

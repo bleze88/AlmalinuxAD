@@ -16,6 +16,8 @@ avec :
   domaine Windows **Active Directory** (optionnel, "skip" possible)
 - **Google Chrome + Microsoft Edge** préinstallés (dépôts officiels
   ajoutés au build, laissés activés pour les mises à jour de sécurité)
+- **sudo sans mise en cache** (`timestamp_timeout=0`) : mot de passe
+  redemandé à chaque `sudo`, durcissement pour environnement professionnel
 
 Projet frère de [Compass Arch](https://github.com/bleze88/compassarch) (même intégration AD sur base Arch
 Linux) - l'essentiel de la logique métier realm/sssd/krb5/sudoers a été
