@@ -13,9 +13,13 @@ pièges déjà rencontrés (et corrigés) sur le projet Arch.
 
 - **`/usr/bin/almalinux-ad-join-wizard`**
   ([`packaging/.../SOURCES/ad-join-wizard.sh`](../packaging/almalinux-ad-firstboot-wizard/SOURCES/ad-join-wizard.sh)) :
-  non privilégié, dialogues `kdialog` séquentiels (domaine, OU, compte
-  admin, nom de machine, groupe autorisé, groupe sudo, mot de passe), écran
-  de confirmation récapitulatif. Le mot de passe ne vit que dans une
+  non privilégié, **un seul écran** (`kdialog --forms` : domaine, nom de
+  machine, compte admin, mot de passe, OU, groupe autorisé, groupe sudo),
+  puis écran de confirmation récapitulatif. Remplace une première version à
+  boîtes de dialogue séquentielles (une par champ) - retour direct d'un
+  test en conditions réelles sur poste physique : avec une série de popups,
+  il est facile de répondre au mauvais champ ou de valider par erreur, le
+  formulaire groupé élimine ce risque. Le mot de passe ne vit que dans une
   variable shell, jamais écrit sur disque ni passé en argument de commande
   (visible dans `/proc/*/cmdline`) - transmis au backend par **stdin**, à
   travers `pkexec` (qui préserve l'entrée standard de l'appelant).
@@ -131,12 +135,16 @@ ici, implémentés dans `ad-join-backend.py` :
   sensible au décalage d'horloge. `chrony` est déjà l'unique client NTP
   actif par défaut sur AlmaLinux (voir "Horloge" ci-dessous pour le détail
   du risque résiduel).
-- **KDC figé dans `krb5.conf`** (`pin_kdc_in_krb5_conf()`) : `realm join`
-  laisse le fichier au template par défaut du paquet `krb5-workstation`
-  (exemples MIT.EDU/CMU.EDU) - Kerberos retrouve le KDC via découverte DNS
-  SRV automatique, mais on le fige explicitement (best-effort, `dig`) pour
-  ne plus dépendre de cette découverte répétée. Voir "mDNS et domaines
-  `.local`" ci-dessous pour le contexte qui a motivé ce choix sur Arch.
+- **Découverte DNS du KDC garantie, jamais figée** (`ensure_dns_realm_discovery()`,
+  **corrigé après un test en conditions réelles sur un AD d'entreprise à 8
+  contrôleurs de domaine**) : une première version figeait explicitement UN
+  SEUL KDC (le premier trouvé via `dig SRV`) dans `[realms]`/
+  `[domain_realm]` de `krb5.conf` - un vrai point de panne unique en
+  environnement multi-DC (si ce contrôleur précis tombe, plus
+  d'authentification, alors que Kerberos sait nativement basculer entre
+  tous les DC disponibles via DNS SRV). Remplacé par une garantie
+  `dns_lookup_realm = true` / `dns_lookup_kdc = true` dans `[libdefaults]`,
+  sans jamais coder en dur un hostname de contrôleur précis.
 - **`use_fully_qualified_names=False` / `case_sensitive=False`**
   (`fix_sssd_conf()`) : **le piège le plus retors du projet Arch**, détaillé
   ci-dessous, reproduit intégralement ici car il vient de
@@ -149,13 +157,30 @@ ici, implémentés dans `ad-join-backend.py` :
   applications KDE au lieu du nom complet, y compris avec le Display Name
   correctement renseigné côté AD. Sans ce réglage explicite, sssd retombe
   sur le CN de l'objet plutôt que sur `displayName`.
-- **Restriction de connexion** (`restrict_login()`) : `realm deny --all` +
-  `realm permit --groups <court>` - sans ça, tout compte du domaine peut se
-  connecter une fois la jonction faite.
-- **Sudo par groupe AD** (`grant_sudo()`) : fragment
-  `/etc/sudoers.d/90-ad-admins`, validé par `visudo -cf` sur un fichier
-  temporaire **avant** activation - une syntaxe invalide ne peut donc jamais
-  casser `sudo` sur le poste.
+  **Piège corrigé dans `fix_sssd_conf()` lui-même** : la fonction
+  cherchait la section `[domain/{}]".format(domain.upper())` en supposant
+  que `realm join` écrit toujours ce nom en MAJUSCULES strictes - faux
+  avec un domaine à casse mixte (ex: `MonEntreprise.CH`), confirmé en
+  conditions réelles sur poste physique (aucun des trois réglages
+  ci-dessus n'était appliqué, la section n'étant jamais reconnue). Fix :
+  recherche insensible à la casse contre le domaine effectivement joint,
+  avec repli sur la première section `[domain/...]` rencontrée si même ça
+  ne correspond pas.
+- **Restriction de connexion, plusieurs groupes possibles**
+  (`restrict_login()`) : `realm deny --all` + `realm permit --groups
+  <court1> <court2> ...` (`realm permit --groups` accepte nativement
+  plusieurs noms de groupes) - sans ça, tout compte du domaine peut se
+  connecter une fois la jonction faite. Le champ du wizard accepte
+  plusieurs groupes séparés par des virgules et/ou des espaces
+  (`split_groups()`), demandé après un test réel où un seul groupe ne
+  couvrait pas les besoins d'accès de l'entreprise.
+- **Sudo par groupe(s) AD** (`grant_sudo()`) : fragment
+  `/etc/sudoers.d/90-ad-admins`, **une ligne par groupe** (plutôt qu'une
+  liste sur une seule ligne - plus simple à relire, évite tout piège de
+  virgule dans la syntaxe `User_List` de sudoers), validé par `visudo -cf`
+  sur le fichier **entier** **avant** activation - un seul nom de groupe
+  invalide fait échouer tout le fragment plutôt que d'activer partiellement
+  des droits.
 - **SDDM en saisie libre** (`switch_sddm_to_free_text()`) : `HideUsers` +
   `RememberLastUser=false` dans une **seule** section `[Users]` de
   `/etc/sddm.conf.d/90-hide-local-user.conf` - comportement du composant

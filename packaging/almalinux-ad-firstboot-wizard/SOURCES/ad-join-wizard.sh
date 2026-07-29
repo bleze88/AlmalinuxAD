@@ -4,56 +4,62 @@
 # Contrepartie de la page Calamares "adjoinview" du projet frère Compass
 # Arch, mais tourne ici après l'installation, au premier login Plasma (ou
 # manuellement depuis le menu applications - voir
-# etc/xdg/autostart/almalinux-ad-join-wizard.desktop vs.
+# etc/xdg/autostart/almalinux-ad-join-wizard-autostart.desktop vs.
 # usr/share/applications/almalinux-ad-join-wizard.desktop).
+#
+# Un seul écran (`kdialog --forms`), pas une série de boîtes de dialogue
+# séquentielles : retour direct d'un test en conditions réelles sur poste
+# physique - avec plusieurs popups à la suite, il est facile de se tromper
+# de champ (répondre à la mauvaise question, ou valider un champ vide en
+# pensant être ailleurs). `kdialog --forms` regroupe tous les champs dans
+# une seule fenêtre, review complète avant validation.
+#
+# !! Syntaxe `--forms` moins courante que les boîtes `--inputbox`/`--yesno`
+# habituelles de kdialog - comportement à reconfirmer au premier test réel
+# après ce changement (voir docs/AD-JOIN-WIZARD.md) : un label préfixé par
+# `*` doit produire un champ mot de passe masqué, et la sortie doit donner
+# une valeur par ligne dans l'ordre des champs déclarés.
 #
 # kdialog est utilisé plutôt qu'une page Calamares/Qt dédiée : déjà fourni
 # par KDE (aucune dépendance Python/Qt supplémentaire à faire vérifier sur
-# les dépôts EL10), et suffisant pour un formulaire séquentiel simple. Toute
-# la logique privilégiée (realm/sssd/krb5/sudoers/SELinux) vit dans
-# ad-join-backend.py, invoqué ici via `pkexec` - ce script-ci ne fait que
-# collecter les réponses et afficher le résultat.
+# les dépôts EL10). Toute la logique privilégiée
+# (realm/sssd/krb5/sudoers/SELinux) vit dans ad-join-backend.py, invoqué
+# ici via `pkexec` - ce script-ci ne fait que collecter les réponses et
+# afficher le résultat.
 set -euo pipefail
 
 TITLE="AlmaLinux AD - Jonction Active Directory"
 
-ask_required() {
-    local prompt="$1" default="${2:-}"
-    kdialog --title "$TITLE" --inputbox "$prompt" "$default"
-}
+# Annuler ce formulaire (bouton Annuler) = ne pas rejoindre maintenant,
+# exactement comme répondre "Non" dans l'ancienne version à plusieurs
+# écrans - toujours possible plus tard depuis le menu applications.
+form_output=$(kdialog --title "$TITLE" --forms \
+    "Rejoindre un domaine Windows Active Directory (Annuler = ne pas rejoindre maintenant - toujours possible plus tard depuis le menu applications « Rejoindre un domaine Active Directory ») :" \
+    "Domaine AD (ex: example.corp) :" "" \
+    "Nom de cet ordinateur (annuaire AD + hostname système) :" "$(hostname -s)" \
+    "Compte administrateur du domaine :" "" \
+    "*Mot de passe administrateur :" "" \
+    "Unité d'organisation - OU (optionnel) :" "" \
+    "Groupe(s) autorisé(s) à se connecter (optionnel, noms courts séparés par des virgules) :" "" \
+    "Groupe(s) avec sudo (optionnel, noms courts séparés par des virgules) :" "") || exit 1
 
-ask_optional() {
-    local prompt="$1"
-    kdialog --title "$TITLE" --inputbox "$prompt" "" || true
-}
-
-if ! kdialog --title "$TITLE" --yesno \
-    "Voulez-vous rejoindre un domaine Windows Active Directory maintenant ?\n\nVous pourrez toujours le faire plus tard depuis le menu applications (« Rejoindre un domaine Active Directory »)."; then
-    exit 1
-fi
-
-domain=$(ask_required "Nom du domaine AD (ex: example.corp) :") || exit 1
-[ -n "$domain" ] || exit 1
-
-ou=$(ask_optional "Unité d'organisation (OU) - optionnel, laissez vide pour la valeur par défaut :\n(ex: OU=Postes,DC=example,DC=corp)")
-
-admin_user=$(ask_required "Compte administrateur du domaine (autorisé à joindre un poste) :") || exit 1
-[ -n "$admin_user" ] || exit 1
-
-computer_name=$(ask_required "Nom de cet ordinateur (utilisé à la fois pour l'annuaire AD et comme nom d'hôte système - un redémarrage sera nécessaire pour que le changement soit visible partout) :" "$(hostname -s)") || exit 1
-[ -n "$computer_name" ] || exit 1
-
-allowed_group=$(ask_optional "Groupe AD autorisé à se connecter sur ce poste - optionnel, nom court.\nLaissez vide pour autoriser tout le domaine :")
-
-sudo_group=$(ask_optional "Groupe AD avec droits sudo sur ce poste - optionnel, nom court :")
-
+# Une valeur par ligne, dans l'ordre des champs déclarés ci-dessus.
+mapfile -t fields <<< "$form_output"
+domain="${fields[0]:-}"
+computer_name="${fields[1]:-}"
+admin_user="${fields[2]:-}"
 # Le mot de passe ne vit que dans cette variable shell, jamais écrit sur
 # disque ni passé en argument de commande (visible dans /proc/*/cmdline) -
 # transmis à ad-join-backend.py par stdin, à travers pkexec, qui préserve
 # l'entrée standard de l'appelant.
-password=$(kdialog --title "$TITLE" --password "Mot de passe du compte administrateur :") || exit 1
-if [ -z "$password" ]; then
-    kdialog --title "$TITLE" --error "Mot de passe vide, jonction annulée."
+password="${fields[3]:-}"
+ou="${fields[4]:-}"
+allowed_group="${fields[5]:-}"
+sudo_group="${fields[6]:-}"
+
+if [ -z "$domain" ] || [ -z "$computer_name" ] || [ -z "$admin_user" ] || [ -z "$password" ]; then
+    password=""
+    kdialog --title "$TITLE" --error "Domaine, nom de l'ordinateur, compte admin et mot de passe sont obligatoires - jonction annulée.\n\nRelancez depuis le menu applications si besoin."
     exit 1
 fi
 

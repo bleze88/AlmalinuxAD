@@ -159,7 +159,9 @@ par paragraphe) :
 
 Ce qui **reste** applicable tel quel (comportements indépendants de la
 distribution ou de l'environnement chroot/live) : synchro horloge avant
-jonction, figer le KDC via `dig SRV` dans `krb5.conf`, forcer
+jonction, garantir `dns_lookup_realm=true`/`dns_lookup_kdc=true` dans
+`krb5.conf` (jamais figer un KDC précis - voir AD-JOIN-WIZARD.md, point
+critique en environnement multi-DC), forcer
 `use_fully_qualified_names=False`/`case_sensitive=False` dans `sssd.conf`
 (bug `pam_systemd`/`ConflictingRecordFound`), restriction
 `realm permit --groups`, fragment sudoers validé par `visudo -cf`, et

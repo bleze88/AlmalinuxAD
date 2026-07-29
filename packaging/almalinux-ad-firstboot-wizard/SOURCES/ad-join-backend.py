@@ -18,7 +18,7 @@ aussi en ligne de commande directe pour un dépannage manuel :
 
 Best-effort par conception : un échec de jonction n'est pas masqué (code de
 sortie non-nul, message clair), mais chaque étape *après* la jonction
-elle-même (figer le KDC, sssd.conf, restriction de groupe, sudo, SDDM) est
+elle-même (krb5.conf, sssd.conf, restriction de groupe, sudo, SDDM) est
 individuellement best-effort - un échec sur l'une n'empêche pas les
 suivantes, il est seulement journalisé sur stderr.
 """
@@ -125,59 +125,68 @@ def join_domain(domain, admin_user, computer_name, ou, password):
     run(["systemctl", "enable", "--now", "sssd.service"], check=False)
 
 
-def pin_kdc_in_krb5_conf(domain):
-    """Fige le KDC découvert par SRV DNS dans /etc/krb5.conf (best-effort).
+def ensure_dns_realm_discovery():
+    """Force dns_lookup_realm=true / dns_lookup_kdc=true dans [libdefaults], sans jamais figer un KDC précis.
 
-    `realm join` fait fonctionner Kerberos via découverte DNS SRV
-    automatique - suffisant, mais laisser le fichier au template par défaut
-    du paquet `krb5-workstation` (exemples MIT.EDU/CMU.EDU) est perturbant
-    pour un admin qui l'inspecterait. On fige donc explicitement le KDC
-    trouvé, ce qui rend Kerberos indépendant de cette découverte répétée
-    pour les opérations suivantes. Sans effet si `dig` échoue ou ne renvoie
-    rien (pas de RFC 2782 SRV pour ce domaine, pas de résolveur DNS
-    fonctionnel...) : on retombe alors sur la découverte automatique, déjà
-    le comportement par défaut sans ce bloc.
+    Version précédente de cette fonction : figeait explicitement UN SEUL
+    KDC (celui répondu en premier par `dig SRV`) dans `[realms]`/
+    `[domain_realm]` de krb5.conf. Erreur de conception signalée après un
+    test en conditions réelles sur un AD d'entreprise avec **8 contrôleurs
+    de domaine** : figer un seul hostname en dur crée un point de panne
+    unique - si CE contrôleur précis tombe (maintenance, panne...), plus
+    aucune authentification Kerberos n'est possible, alors que Kerberos
+    sait nativement basculer entre tous les contrôleurs disponibles via
+    découverte DNS SRV (`_kerberos._tcp.<royaume>`), c'est justement fait
+    pour ça. Le raisonnement d'origine ("réduire la dépendance à une
+    découverte DNS répétée") avait du sens dans un labo à un seul
+    contrôleur de test, pas dans un environnement d'entreprise avec
+    plusieurs DC - la robustesse attendue est exactement l'inverse : ne
+    JAMAIS coder en dur un contrôleur précis, laisser Kerberos interroger
+    DNS à chaque fois pour profiter automatiquement de tous les DC
+    disponibles (et de leur éventuelle redondance géographique/site AD).
+
+    `realm join` positionne normalement déjà `dns_lookup_realm`/
+    `dns_lookup_kdc` à `true` par défaut, mais on le vérifie et le force
+    explicitement plutôt que de le supposer - même logique que les autres
+    réglages de ce fichier (ne jamais deviner un défaut, le garantir).
     """
     try:
-        srv = run(
-            ["sh", "-c", "dig +short SRV _kerberos._tcp.{} | sort -n | head -1".format(domain)],
-            timeout=15,
-            check=False,
-        ).stdout.strip()
-        kdc_host = srv.split()[-1].rstrip(".") if srv else ""
-    except (OSError, subprocess.TimeoutExpired):
-        kdc_host = ""
-
-    if not kdc_host:
-        log("pas de KDC trouvé via SRV, /etc/krb5.conf laissé tel quel (découverte DNS automatique).")
-        return
-
-    try:
         with open("/etc/krb5.conf") as f:
-            krb5_conf = f.read()
+            conf = f.read()
     except OSError as exc:
-        log("impossible de lire /etc/krb5.conf ({}), KDC non figé.".format(exc))
+        log("impossible de lire /etc/krb5.conf ({}), réglages non appliqués.".format(exc))
         return
 
-    realm_upper = domain.upper()
-    realm_block = "    {} = {{\n        kdc = {}\n        admin_server = {}\n    }}\n".format(
-        realm_upper, kdc_host, kdc_host
-    )
-    domain_realm_block = "    .{0} = {1}\n    {0} = {1}\n".format(domain, realm_upper)
-
-    new_lines = []
-    for line in krb5_conf.splitlines(keepends=True):
-        new_lines.append(line)
+    header = "[libdefaults]"
+    in_section = False
+    filtered_lines = []
+    for line in conf.splitlines():
         stripped = line.strip()
-        if stripped == "[realms]":
-            new_lines.append(realm_block)
-        elif stripped == "[domain_realm]":
-            new_lines.append(domain_realm_block)
+        if stripped.startswith("["):
+            in_section = stripped == header
+            filtered_lines.append(line)
+            continue
+        if in_section and stripped.split("=", 1)[0].strip() in ("dns_lookup_realm", "dns_lookup_kdc"):
+            continue
+        filtered_lines.append(line)
+
+    if header not in [l.strip() for l in filtered_lines]:
+        # Pas de section [libdefaults] du tout (template inhabituel) - en
+        # ajouter une en tête plutôt que de renoncer.
+        filtered_lines = [header] + filtered_lines
+
+    final_lines = []
+    for line in filtered_lines:
+        final_lines.append(line)
+        if line.strip() == header:
+            final_lines.append("    dns_lookup_realm = true")
+            final_lines.append("    dns_lookup_kdc = true")
+    new_conf = "\n".join(final_lines) + "\n"
 
     with open("/etc/krb5.conf", "w") as f:
-        f.write("".join(new_lines))
+        f.write(new_conf)
     restorecon("/etc/krb5.conf")
-    log("KDC '{}' figé dans /etc/krb5.conf pour le royaume {}.".format(kdc_host, realm_upper))
+    log("dns_lookup_realm=true / dns_lookup_kdc=true garantis dans krb5.conf (aucun KDC figé en dur).")
 
 
 def fix_sssd_conf(domain):
@@ -221,7 +230,34 @@ def fix_sssd_conf(domain):
         log("impossible de lire /etc/sssd/sssd.conf ({}), réglages non appliqués.".format(exc))
         return
 
-    domain_header = "[domain/{}]".format(domain.upper())
+    # Bug corrigé après un test en conditions réelles (domaine "MonEntreprise.CH") :
+    # supposer que realm join écrit toujours la section en MAJUSCULES
+    # strictes ("[domain/{}]".format(domain.upper())) était faux - la casse
+    # réellement utilisée dans le fichier généré peut différer de celle du
+    # domaine tel que saisi. Avec l'ancienne comparaison stricte, la section
+    # n'était JAMAIS reconnue, donc TOUTE la fonction ne faisait rien - ni le
+    # fix use_fully_qualified_names/case_sensitive (bug écran noir), ni
+    # ldap_user_gecos (nom complet KDE). Recherche insensible à la casse
+    # contre le domaine effectivement joint, avec repli sur la première
+    # section [domain/...] rencontrée (une installation fraîchement jointe
+    # n'en a normalement qu'une seule) si même ça ne correspond pas.
+    domain_header = None
+    fallback_header = None
+    expected = "[domain/{}]".format(domain).lower()
+    for line in conf.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[domain/") and stripped.endswith("]"):
+            if fallback_header is None:
+                fallback_header = stripped
+            if stripped.lower() == expected:
+                domain_header = stripped
+                break
+    if domain_header is None:
+        domain_header = fallback_header
+    if domain_header is None:
+        log("aucune section [domain/...] trouvée dans sssd.conf, réglages non appliqués.")
+        return
+
     in_domain_section = False
     filtered_lines = []
     for line in conf.splitlines():
@@ -257,38 +293,60 @@ def fix_sssd_conf(domain):
     log("use_fully_qualified_names=False / case_sensitive=False / ldap_user_gecos=displayName appliqués à sssd.conf.")
 
 
-def restrict_login(allowed_group):
-    """`realm deny --all` puis `realm permit --groups <groupe>` (nom court).
+def split_groups(raw):
+    """Découpe une liste de groupes saisie en un seul champ (virgules et/ou espaces)."""
+    return [g.strip() for g in raw.replace(",", " ").split() if g.strip()]
+
+
+def restrict_login(allowed_groups_raw):
+    """`realm deny --all` puis `realm permit --groups <groupe1> <groupe2> ...` (noms courts).
 
     Sans ça, n'importe quel compte du domaine peut se connecter une fois la
-    jonction faite. Nom COURT (pas de "@domaine") : avec
-    use_fully_qualified_names=False (forcé ci-dessus), c'est le nom court du
-    groupe qui résout via getent group - vérifié avec la commande plutôt que
-    supposé, comportement inverse de celui documenté avant ce changement de
-    réglage.
+    jonction faite. `realm permit --groups` accepte nativement PLUSIEURS
+    noms de groupes en arguments (pas besoin de répéter `--groups`) -
+    demandé après un test en conditions réelles où un seul groupe ne
+    suffisait pas à couvrir les besoins d'accès réels de l'entreprise. Noms
+    COURTS (pas de "@domaine") : avec use_fully_qualified_names=False
+    (forcé ci-dessus), c'est le nom court du groupe qui résout via getent
+    group - vérifié avec la commande plutôt que supposé, comportement
+    inverse de celui documenté avant ce changement de réglage.
     """
+    groups = split_groups(allowed_groups_raw)
+    if not groups:
+        return
     try:
         run(["realm", "deny", "--all"], timeout=30)
-        run(["realm", "permit", "--groups", allowed_group], timeout=30)
-        log("connexion restreinte au groupe AD '{}'.".format(allowed_group))
+        run(["realm", "permit", "--groups"] + groups, timeout=30)
+        log("connexion restreinte au(x) groupe(s) AD : {}.".format(", ".join(groups)))
     except subprocess.CalledProcessError as exc:
-        log("échec de la restriction de connexion au groupe '{}' : {}".format(allowed_group, exc.stderr))
+        log("échec de la restriction de connexion aux groupes {} : {}".format(groups, exc.stderr))
 
 
-def grant_sudo(sudo_group, domain):
-    """Fragment /etc/sudoers.d/, validé par visudo -cf avant activation.
+def grant_sudo(sudo_groups_raw, domain):
+    """Fragment /etc/sudoers.d/, une ligne par groupe, validé par visudo -cf avant activation.
 
-    Nom COURT du groupe (voir fix_sssd_conf) : sudo/visudo résolvent un
+    Plusieurs groupes possibles (même raison que restrict_login) : une
+    ligne sudoers séparée par groupe dans le même fragment plutôt qu'une
+    liste sur une seule ligne - plus simple à relire/déboguer, et évite
+    tout piège de virgule dans la syntaxe `User_List` de sudoers. Le
+    fichier ENTIER (toutes les lignes) est validé par `visudo -cf` avant
+    activation - un seul nom de groupe invalide fait échouer tout le
+    fragment plutôt que d'activer partiellement des droits.
+
+    Noms COURTS du groupe (voir fix_sssd_conf) : sudo/visudo résolvent un
     groupe via getgrnam() (NSS), qui suit use_fully_qualified_names - forcé
     à False juste au-dessus.
     """
-    sudo_group_short = sudo_group.split("@", 1)[0]
+    groups = split_groups(sudo_groups_raw)
+    if not groups:
+        return
+    groups_short = [g.split("@", 1)[0] for g in groups]
     tmp_path = "/etc/sudoers.d/90-ad-admins.tmp"
     final_path = "/etc/sudoers.d/90-ad-admins"
-    sudoers_line = "%{} ALL=(ALL:ALL) ALL\n".format(sudo_group_short)
+    sudoers_content = "".join("%{} ALL=(ALL:ALL) ALL\n".format(g) for g in groups_short)
 
     with open(tmp_path, "w") as f:
-        f.write(sudoers_line)
+        f.write(sudoers_content)
 
     check = run(["visudo", "-cf", tmp_path], check=False)
     if check.returncode == 0:
@@ -297,12 +355,12 @@ def grant_sudo(sudo_group, domain):
         os.chmod(tmp_path, 0o440)
         os.rename(tmp_path, final_path)
         restorecon(final_path)
-        log("droits sudo accordés au groupe AD '{}'.".format(sudo_group_short))
+        log("droits sudo accordés au(x) groupe(s) AD : {}.".format(", ".join(groups_short)))
     else:
         import os
 
         os.remove(tmp_path)
-        log("nom de groupe sudo '{}' invalide pour sudoers, ignoré : {}".format(sudo_group_short, check.stderr))
+        log("un ou plusieurs noms de groupe sudo {} invalides pour sudoers, ignorés : {}".format(groups_short, check.stderr))
 
 
 def switch_sddm_to_free_text(local_admin_user):
@@ -358,7 +416,7 @@ def main():
         log("jonction AD échouée, aucune autre étape exécutée. Jonction manuelle possible : 'realm join'.")
         return 1
 
-    pin_kdc_in_krb5_conf(args.domain)
+    ensure_dns_realm_discovery()
     fix_sssd_conf(args.domain)
 
     if args.allowed_group:
