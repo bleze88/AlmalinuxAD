@@ -145,10 +145,23 @@ chroot "$ROOTFS_DIR" dnf install -y --setopt=install_weak_deps=False \
 # via l'assistant) : realmd lit ce fichier au moment de `realm join` pour
 # décider du `fallback_homedir` qu'il écrit dans sssd.conf, donc ce réglage
 # doit être en place dès le build, pas seulement documenté.
-cat > "$ROOTFS_DIR/etc/realmd.conf" <<'EOF'
+#
+# [active-directory] os-name/os-version : sans ça, l'objet ordinateur créé
+# dans l'AD a ses attributs operatingSystem/operatingSystemVersion vides
+# (onglet "Operating System" d'Utilisateurs et ordinateurs Active
+# Directory) - demandé pour que ces postes Linux soient identifiables au
+# même titre que les postes Windows dans la console AD. `os-version` suit
+# ALMALINUX_MAJOR de distro.conf plutôt qu'être codé en dur, pour rester
+# correct si ce dépôt est un jour reconstruit sur une nouvelle version
+# majeure d'AlmaLinux.
+cat > "$ROOTFS_DIR/etc/realmd.conf" <<EOF
 [users]
 default-home = /home/%D/%U
 default-shell = /bin/bash
+
+[active-directory]
+os-name = AlmaLinux
+os-version = ${ALMALINUX_MAJOR}
 EOF
 
 echo "==> Ajout des dépôts Google Chrome et Microsoft Edge"

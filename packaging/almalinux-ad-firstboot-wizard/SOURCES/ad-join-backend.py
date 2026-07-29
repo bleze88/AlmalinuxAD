@@ -189,6 +189,57 @@ def ensure_dns_realm_discovery():
     log("dns_lookup_realm=true / dns_lookup_kdc=true garantis dans krb5.conf (aucun KDC figé en dur).")
 
 
+def populate_krb5_realms(domain):
+    """Peuple [realms]/[domain_realm] avec le NOM DE DOMAINE lui-même, pas une liste de DC.
+
+    Deux tentatives précédentes de cette fonction, corrigées par des
+    retours de terrain successifs sur un AD d'entreprise à 8 contrôleurs
+    de domaine :
+    1. Figer UN SEUL KDC (le premier trouvé via `dig SRV`) : point de panne
+       unique, si ce contrôleur précis tombe, plus d'authentification.
+    2. Ne rien mettre du tout dans [realms]/[domain_realm] (pure découverte
+       DNS dynamique via dns_lookup_realm/dns_lookup_kdc) : fonctionnellement
+       correct mais rejeté - l'admin veut des sections visibles/peuplées,
+       pas vides.
+    3. **Version actuelle** : le nom de domaine LUI-MÊME comme kdc/
+       admin_server (`kdc = MonEntreprise.CH`), pas une liste de contrôleurs
+       individuels. Confirmé par l'administrateur : les 8 contrôleurs
+       répondent tous sous ce même nom (répartition/DNS round-robin déjà
+       gérée côté AD - un `ping MonEntreprise.CH` répondu par un contrôleur
+       différent selon l'essai le confirme). Pas de résolution DNS SRV
+       nécessaire ici : le nom de domaine tel que saisi/joint suffit, la
+       redondance entre les 8 DC est déjà transparente à ce niveau - et
+       cette version reste donc valide même sans le moindre enregistrement
+       SRV Kerberos configuré côté AD.
+    """
+    try:
+        with open("/etc/krb5.conf") as f:
+            krb5_conf = f.read()
+    except OSError as exc:
+        log("impossible de lire /etc/krb5.conf ({}), [realms]/[domain_realm] non peuplés.".format(exc))
+        return
+
+    realm_upper = domain.upper()
+    realm_block = "    {0} = {{\n        kdc = {1}\n        admin_server = {1}\n    }}\n".format(
+        realm_upper, domain
+    )
+    domain_realm_block = "    .{0} = {1}\n    {0} = {1}\n".format(domain, realm_upper)
+
+    new_lines = []
+    for line in krb5_conf.splitlines(keepends=True):
+        new_lines.append(line)
+        stripped = line.strip()
+        if stripped == "[realms]":
+            new_lines.append(realm_block)
+        elif stripped == "[domain_realm]":
+            new_lines.append(domain_realm_block)
+
+    with open("/etc/krb5.conf", "w") as f:
+        f.write("".join(new_lines))
+    restorecon("/etc/krb5.conf")
+    log("[realms]/[domain_realm] peuplés pour {} (kdc = {}).".format(realm_upper, domain))
+
+
 def fix_sssd_conf(domain):
     """Force use_fully_qualified_names=False, case_sensitive=False, ldap_user_gecos=displayName.
 
@@ -417,6 +468,7 @@ def main():
         return 1
 
     ensure_dns_realm_discovery()
+    populate_krb5_realms(args.domain)
     fix_sssd_conf(args.domain)
 
     if args.allowed_group:

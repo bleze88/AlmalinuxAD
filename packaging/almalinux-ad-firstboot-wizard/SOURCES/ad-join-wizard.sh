@@ -34,15 +34,21 @@ TITLE="AlmaLinux AD - Jonction Active Directory"
 # Annuler ce formulaire (bouton Annuler) = ne pas rejoindre maintenant,
 # exactement comme répondre "Non" dans l'ancienne version à plusieurs
 # écrans - toujours possible plus tard depuis le menu applications.
-form_output=$(zenity --forms --title="$TITLE" --separator="|" \
-    --text="Rejoindre un domaine Windows Active Directory (Annuler = ne pas rejoindre maintenant - toujours possible plus tard depuis le menu applications « Rejoindre un domaine Active Directory »)" \
+# --width/--height fixés : sans ça, zenity dimensionne la fenêtre sur la
+# largeur du label le plus long au lieu de faire des retours à la ligne -
+# confirmé en conditions réelles (fenêtre débordant de l'écran, champs
+# tronqués comme "Unité d'organisation" affichant la fin de la valeur
+# saisie plutôt que le début). Labels aussi raccourcis pour limiter le
+# besoin de largeur en premier lieu.
+form_output=$(zenity --forms --title="$TITLE" --separator="|" --width=800 --height=480 \
+    --text="Rejoindre un domaine Windows Active Directory\n(Annuler = ne pas rejoindre maintenant - toujours possible plus tard depuis le menu applications)" \
     --add-entry="Domaine AD (ex: example.corp)" \
-    --add-entry="Nom de cet ordinateur (annuaire AD + hostname système - actuel: $(hostname -s))" \
+    --add-entry="Nom de l'ordinateur (AD + hostname - actuel : $(hostname -s))" \
     --add-entry="Compte administrateur du domaine" \
     --add-password="Mot de passe administrateur" \
     --add-entry="Unité d'organisation - OU (optionnel)" \
-    --add-entry="Groupe(s) autorisé(s) à se connecter (optionnel, noms courts séparés par des virgules)" \
-    --add-entry="Groupe(s) avec sudo (optionnel, noms courts séparés par des virgules)") || exit 1
+    --add-entry="Groupe(s) autorisés à se connecter (virgules, optionnel)" \
+    --add-entry="Groupe(s) avec sudo (virgules, optionnel)") || exit 1
 
 # Une seule ligne, valeurs séparées par "|" dans l'ordre des champs déclarés
 # ci-dessus (voir --separator ci-dessus).

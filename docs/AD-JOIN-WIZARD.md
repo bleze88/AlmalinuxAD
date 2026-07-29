@@ -150,16 +150,30 @@ ici, implémentés dans `ad-join-backend.py` :
   sensible au décalage d'horloge. `chrony` est déjà l'unique client NTP
   actif par défaut sur AlmaLinux (voir "Horloge" ci-dessous pour le détail
   du risque résiduel).
-- **Découverte DNS du KDC garantie, jamais figée** (`ensure_dns_realm_discovery()`,
-  **corrigé après un test en conditions réelles sur un AD d'entreprise à 8
-  contrôleurs de domaine**) : une première version figeait explicitement UN
-  SEUL KDC (le premier trouvé via `dig SRV`) dans `[realms]`/
-  `[domain_realm]` de `krb5.conf` - un vrai point de panne unique en
-  environnement multi-DC (si ce contrôleur précis tombe, plus
-  d'authentification, alors que Kerberos sait nativement basculer entre
-  tous les DC disponibles via DNS SRV). Remplacé par une garantie
-  `dns_lookup_realm = true` / `dns_lookup_kdc = true` dans `[libdefaults]`,
-  sans jamais coder en dur un hostname de contrôleur précis.
+- **`[realms]`/`[domain_realm]` peuplés avec le nom de domaine, pas un
+  contrôleur précis** (`ensure_dns_realm_discovery()` +
+  `populate_krb5_realms()`) - **trois itérations successives après des
+  tests en conditions réelles sur un AD d'entreprise à 8 contrôleurs de
+  domaine** :
+  1. Version initiale : figeait explicitement UN SEUL KDC (le premier
+     trouvé via `dig SRV`) - point de panne unique confirmé dangereux (si
+     ce contrôleur précis tombe, plus d'authentification).
+  2. Corrigé en supprimant tout contenu de `[realms]`/`[domain_realm]`,
+     ne gardant que `dns_lookup_realm=true`/`dns_lookup_kdc=true` dans
+     `[libdefaults]` (découverte DNS SRV dynamique pure) - fonctionnellement
+     correct, mais rejeté : l'administrateur veut des sections visibles et
+     peuplées, pas vides.
+  3. **Version actuelle** : `[realms]`/`[domain_realm]` peuplés avec le
+     **nom de domaine lui-même** comme `kdc`/`admin_server`
+     (`kdc = MonEntreprise.CH`), pas une liste de contrôleurs individuels.
+     Confirmé par l'administrateur : ses 8 contrôleurs répondent tous sous
+     ce même nom (répartition/DNS round-robin déjà géré côté AD - un ping
+     répété sur ce nom répond depuis un contrôleur différent à chaque
+     fois). Pas de résolution DNS SRV nécessaire : le nom de domaine tel
+     que saisi/joint suffit, la redondance entre les 8 DC est déjà
+     transparente à ce niveau. `dns_lookup_realm`/`dns_lookup_kdc=true`
+     restent en place dans `[libdefaults]` en filet de sécurité
+     complémentaire.
 - **`use_fully_qualified_names=False` / `case_sensitive=False`**
   (`fix_sssd_conf()`) : **le piège le plus retors du projet Arch**, détaillé
   ci-dessous, reproduit intégralement ici car il vient de
@@ -328,6 +342,16 @@ juste après l'installation de `realmd` - `realmd` lit ce fichier au moment
 de `realm join` (donc au premier login, via l'assistant) pour décider du
 `fallback_homedir` qu'il écrit dans `sssd.conf` ; le réglage doit donc être
 en place dès le build, pas seulement documenté ou appliqué après coup.
+
+**Identification du poste dans la console AD : `os-name`/`os-version`.**
+Sans ce réglage, l'objet ordinateur créé par `realm join` a ses attributs
+`operatingSystem`/`operatingSystemVersion` vides (onglet "Operating
+System" d'Utilisateurs et ordinateurs Active Directory - vide alors qu'un
+poste Windows y affiche normalement "Windows 11 Entreprise"/"10.0
+(26200)"). `/etc/realmd.conf` (`[active-directory]` `os-name = AlmaLinux`
+/ `os-version = ${ALMALINUX_MAJOR}` - suit `distro.conf`, pas codé en dur)
+comble ça, `adcli`/`realmd` transmettent ces valeurs à l'AD au moment de la
+jonction.
 
 ## Diagnostiquer un échec
 
