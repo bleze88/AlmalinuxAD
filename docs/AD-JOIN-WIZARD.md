@@ -228,6 +228,20 @@ ici, implémentés dans `ad-join-backend.py` :
   `RememberLastUser=false` dans une **seule** section `[Users]` de
   `/etc/sddm.conf.d/90-hide-local-user.conf` - comportement du composant
   SDDM lui-même, identique quelle que soit la distribution.
+- **Redémarrage `sssd` final garanti, en toute dernière étape de `main()`**
+  (`systemctl restart sssd.service` inconditionnel) : signalé en
+  conditions réelles - sans lui, un compte AD restait totalement
+  impossible à utiliser pour se connecter jusqu'à un **redémarrage complet
+  de la machine**. Cause : `join_domain()` fait `systemctl enable --now
+  sssd.service` juste après `realm join`, mais `--now` ne **redémarre
+  pas** le service s'il tournait déjà (il vérifie seulement qu'il est
+  actif, sans recharger sa config) ; `fix_sssd_conf()` fait bien un
+  `restart`, mais seulement après sa propre écriture de `sssd.conf`, avant
+  que `krb5.conf` (`populate_krb5_realms()`) et une éventuelle restriction
+  de connexion (`realm deny`/`permit`, qui régénère aussi `sssd.conf`)
+  n'aient fini de s'appliquer. Un dernier `restart` inconditionnel après
+  absolument tout le reste élimine toute fenêtre où `sssd` tournerait
+  encore sur un état intermédiaire.
 
 ### Écran noir après connexion AD réussie (`use_fully_qualified_names`)
 

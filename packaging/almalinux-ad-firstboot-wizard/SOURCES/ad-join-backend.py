@@ -515,6 +515,20 @@ def main():
         grant_sudo(args.sudo_group, args.domain)
     switch_sddm_to_free_text(args.local_admin_user)
 
+    # Redémarrage final garanti - signalé en conditions réelles : sans lui,
+    # un compte AD restait inconnu (impossible de se connecter) jusqu'à un
+    # redémarrage complet de la machine. `join_domain()` fait
+    # `systemctl enable --now sssd.service` juste après `realm join`, qui
+    # ne REDÉMARRE PAS le service s'il tournait déjà (--now se contente de
+    # s'assurer qu'il est actif, sans recharger sa config) ; `fix_sssd_conf()`
+    # fait bien un `restart` de son côté, mais seulement pour sa propre
+    # écriture de sssd.conf, avant que krb5.conf (populate_krb5_realms) et
+    # les réglages de restriction de connexion (realm deny/permit, qui
+    # régénèrent aussi sssd.conf) n'aient fini de s'appliquer. Un dernier
+    # restart inconditionnel ici, une fois tout le reste terminé, élimine
+    # toute fenêtre où sssd tournerait encore avec un état intermédiaire.
+    run(["systemctl", "restart", "sssd.service"], check=False)
+
     log("jonction au domaine {} terminée.".format(args.domain))
     return 0
 

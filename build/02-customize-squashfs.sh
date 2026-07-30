@@ -189,6 +189,32 @@ chroot "$ROOTFS_DIR" dnf install -y google-chrome-stable microsoft-edge-stable
 # deux navigateurs via dnf, ce qui compte plus pour un navigateur que pour
 # la plupart des logiciels.
 
+echo "==> Evolution + evolution-ews (client Exchange/EWS)"
+chroot "$ROOTFS_DIR" dnf install -y evolution evolution-ews
+
+echo "==> LibreOffice via Flatpak/Flathub"
+# Absent de TOUS les dépôts dnf d'AlmaLinux 10 (BaseOS/AppStream/CRB/EPEL) -
+# confirmé par `dnf search libreoffice` sans résultat. RHEL10 a abandonné le
+# système de modules qui portait LibreOffice sur RHEL8/9 ; pas encore
+# réintégré en paquet classique. Flatpak (lui, bien présent dans AppStream)
+# + Flathub est le choix retenu plutôt que les archives RPM génériques
+# publiées par The Document Foundation (pas un vrai dépôt dnf, aucune mise
+# à jour automatique possible - contrairement à absolument tout le reste de
+# cette image, y compris Chrome/Edge). `flatpak install --system` en root
+# direct n'a pas besoin de systemd/D-Bus (contrairement à une installation
+# utilisateur non privilégiée, qui passerait par
+# org.freedesktop.Flatpak.SystemHelper) - fonctionne dans ce chroot comme
+# `dnf`, aucun service en cours d'exécution requis.
+chroot "$ROOTFS_DIR" flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+chroot "$ROOTFS_DIR" flatpak install --system -y flathub org.libreoffice.LibreOffice
+
+# OnlyOffice installé EN PLUS de LibreOffice (pas à sa place) - à titre de
+# comparaison temporaire, pour que l'utilisateur teste les deux sur des
+# documents réels générés par la suite Office de Microsoft avant de
+# décider lequel garder définitivement. À retirer une fois ce choix fait
+# (voir docs/AD-JOIN-WIZARD.md ou README.md pour la décision une fois prise).
+chroot "$ROOTFS_DIR" flatpak install --system -y flathub org.onlyoffice.desktopeditors
+
 echo "==> authselect / oddjobd / journald / avahi / horloge / sudo"
 chroot "$ROOTFS_DIR" authselect select sssd with-mkhomedir --force
 chroot "$ROOTFS_DIR" systemctl enable oddjobd.service

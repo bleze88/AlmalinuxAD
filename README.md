@@ -16,6 +16,11 @@ avec :
   domaine Windows **Active Directory** (optionnel, "skip" possible)
 - **Google Chrome + Microsoft Edge** préinstallés (dépôts officiels
   ajoutés au build, laissés activés pour les mises à jour de sécurité)
+- **Evolution + evolution-ews** préinstallés (client mail avec support
+  Exchange/EWS, dépôt EPEL)
+- **LibreOffice** préinstallé via Flatpak/Flathub - absent de tout dépôt
+  dnf sur AlmaLinux 10 (RHEL10 a abandonné le système de modules qui le
+  portait sur RHEL8/9), seul logiciel de cette image géré hors dnf
 - **sudo sans mise en cache** (`timestamp_timeout=0`) : mot de passe
   redemandé à chaque `sudo`, durcissement pour environnement professionnel
 
